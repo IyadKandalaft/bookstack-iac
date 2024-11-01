@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template to deploy an Application Load Balancer with TLS encryption
+
+Parameters:
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID
+
+  LoadBalancerSubnet1:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: Subnets for the Load Balancer
+    Default: /devops/subnet/web1
+
+  LoadBalancerSubnet2:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: Subnets for the Load Balancer
+    Default: /devops/subnet/web2
+
+  ACMCertificateArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: ARN of the ACM Certificate for the Load Balancer
+    Default: /devops/certificate
+
+  NamePrefix:
+    Type: String
+    Default: cbdg-cd
+    Description: Prefix for naming resources
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: SSM Parameter for the Load Balancer Security Group ID
+    Default: /shared-infra/alb-sg-id
+
+Resources:
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${NamePrefix}"
+      Subnets:
+        - !Ref LoadBalancerSubnet1
+        - !Ref LoadBalancerSubnet2
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Scheme: private
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref ACMCertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: 443
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${NamePrefix}-ecs-app"
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPCId
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: '200-399'

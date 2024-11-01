@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template to deploy an Aurora MySQL instance for BookStack
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: cbpg-bookstack
+    Description: Prefix to use for all resource names
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID
+
+  RDSSubnet1:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: SSM parameter for the first subnet ID for RDS
+  
+  RDSSubnet2:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: SSM parameter for the second subnet ID for RDS
+
+  DatabaseName:
+    Type: String
+    Default: bookstack
+    Description: Name of the RDS database
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    AllowedValues:
+      - db.t3.medium
+      - db.r5.large
+      - db.r5.xlarge
+    Description: Aurora MySQL instance class
+
+  SecurityGroupId:
+    Type: String
+    Description: SSM parameter for the security group ID to be used by the RDS instance
+
+  BackupTagKey:
+    Type: String
+    Description: They tag key used to apply a backup policy to the database for AWS Backups
+    Default: backup-plan
+
+  BackupTagValue:
+    Type: String
+    Description: The tag value of the backup tag
+    Default: default
+
+Resources:
+  BookStackDBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ResourcePrefix}-database-credentials'
+      Description: Secret to store the database credentials for BookStack
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\\'
+
+  BookStackDBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterIdentifier: !Sub '${ResourcePrefix}-db-cluster'
+      Engine: aurora-mysql
+      EngineVersion: '8.0.mysql_aurora.3'
+      DBClusterParameterGroupName: default.aurora-mysql8.0
+      MasterUsername: !Sub '{{resolve:secretsmanager:${BookStackDBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${BookStackDBSecret}:SecretString:password}}'
+      DatabaseName: !Ref DatabaseName
+      VpcSecurityGroupIds:
+        - !Ref SecurityGroupId
+      DBSubnetGroupName: !Ref BookStackDBSubnetGroup
+      Tags:
+        - Key: !Ref BackupTagKey
+          Value: !Ref BackupTagValue
+      
+  BookStackDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub '${ResourcePrefix}'
+      DBClusterIdentifier: !Ref BookStackDBCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: aurora-mysql
+      PubliclyAccessible: false
+
+  BookStackDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora MySQL instance for !Ref ResourcePrefix
+      SubnetIds:
+        - !Ref RDSSubnet1
+        - !Ref RDSSubnet2
+        
+
+  BookStackDBEndpointSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '${ResourcePrefix}-db-endpoint'
+      Type: String
+      Value: !GetAtt BookStackDBCluster.Endpoint.Address
+
+  BookStackDBPortSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '${ResourcePrefix}-db-port'
+      Type: String
+      Value: !GetAtt BookStackDBCluster.Endpoint.Port

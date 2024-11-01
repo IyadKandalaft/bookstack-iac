@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Parent CloudFormation template to create nested stacks for infrastructure deployment
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: cbpg-bookstack
+    Description: Prefix to use for all resources
+
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC ID where the resources will be deployed
+
+  AlarmSNSArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: SSM parameter for the ARN of the existing SNS topic to receive alarm notifications
+    Default: /shared-infra/alarm-sns-arn
+
+  WebSubnet1:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: The SSM parameter for the load balancer subnet ID 
+    Default: /devops/web-subnet-1
+
+  WebSubnet2:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: The SSM parameter for the load balancer subnet ID
+    Default: /devops/web-subnet-2
+
+  AppSubnet1:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: The SSM parameter for the fargate service's subnet ID
+    Default: /devops/app-subnet-1
+
+  AppSubnet2:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: The SSM parameter for the fargate service's subnet ID
+    Default: /devops/app-subnet-2
+
+  DataSubnet1:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: The SSM parameter for the first subnet ID for RDS
+    Default: /devops/data-subnet-1
+
+  DataSubnet2:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Description: The SSM parameter for the second subnet ID for RDS
+    Default: /devops/data-subnet-2
+
+Resources:
+  SharedInfraStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: shared-infra.yml
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        VPCId: !Ref VPCId
+
+  DatabaseStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: database.yml
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        VPCId: !Ref VPCId
+        RDSSubnet1: !Ref DataSubnet1
+        RDSSubnet2: !Ref DataSubnet2
+        SecurityGroupId: !Ref SharedInfraStack.DBSecurityGroup
+
+  FrontendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: frontend.yml
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        VPCId: !Ref VPCId
+        LoadBalancerSecurityGroup: !Ref SharedInfraStack.LoadBalancerSecurityGroup
+        LoadBalancerSubnet1: !Ref WebSubnet1
+        LoadBalancerSubnet2: !Ref WebSubnet2
+
+  AppStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://s3.amazonaws.com/${AWS::AccountId}-cloudformation-templates/app.yml"
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        VPCId: !Ref VPCId
+        AppSecurityGroup: !Ref SharedInfraStack.AppSecurityGroup
+        ECSTaskSubnetIds: !Sub '${AppSubnet1},${AppSubnet2}'
+        ALBTargetGroupArn: !Ref FrontendStack.TargetGroup
+
+  MonitoringStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: monitoring.yml
+      Parameters:
+        NamePrefix: !Ref ResourcePrefix
+        AlarmSNSArn: !Ref AlarmSNSArn
+        LoadBalancerName: !Ref LoadBalancerName
+
+

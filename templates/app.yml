@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template to deploy ECS Fargate tasks with Auto Scaling
+
+Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: BookStack
+    Description: Prefix for naming resources
+
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: The security group to be used for the ECS service
+
+  ECSTaskSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of Subnet IDs for ECS tasks
+
+  BookStackImage:
+    Type: String
+    Default: solidnerd/bookstack:latest
+    Description: Docker image for BookStack
+
+  ALBTargetGroupArn:
+    Type: String
+    Description: ARN of the ALB Target Group
+
+Resources:
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 4
+      MinCapacity: 1
+      ResourceId: !Sub "service/${BookStackCluster}/${BookStackService}"
+      RoleARN: !GetAtt TaskExecutionRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${ResourcePrefix}-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+
+  BookStackCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ResourcePrefix}"
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ResourcePrefix}-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "fargate-execution"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:*:*:log-group:/${ResourcePrefix}:*
+
+  BookStackTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ResourcePrefix}-app"
+      Cpu: 1024
+      Memory: 1024
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: bookstack
+          Image: !Ref BookStackImage
+          PortMappings:
+            - ContainerPort: 80
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ResourcePrefix
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: app
+
+  BookStackService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ResourcePrefix}-service"
+      Cluster: !Ref BookStackCluster
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref BookStackTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref AppSecurityGroup
+          Subnets: !Ref ECSTaskSubnetIds
+      LoadBalancers:
+        - ContainerName: bookstack
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroupArn
