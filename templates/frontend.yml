@@ -2,46 +2,51 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation Template to deploy an Application Load Balancer with TLS encryption
 
 Parameters:
+  ResourcePrefix:
+    Type: String
+    Default: cbdg-cd
+    Description: Prefix for naming resources
+
   VPCId:
     Type: AWS::EC2::VPC::Id
     Description: VPC ID
 
   LoadBalancerSubnet1:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Type: AWS::EC2::Subnet::Id
     Description: Subnets for the Load Balancer
-    Default: /devops/subnet/web1
 
   LoadBalancerSubnet2:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
+    Type: AWS::EC2::Subnet::Id
     Description: Subnets for the Load Balancer
-    Default: /devops/subnet/web2
 
   ACMCertificateArn:
-    Type: AWS::SSM::Parameter::Value<String>
-    Description: ARN of the ACM Certificate for the Load Balancer
-    Default: /devops/certificate
-
-  NamePrefix:
     Type: String
-    Default: cbdg-cd
-    Description: Prefix for naming resources
+    Description: ARN of the ACM Certificate for the Load Balancer
 
   LoadBalancerSecurityGroup:
-    Type: AWS::SSM::Parameter::Value<String>
+    Type: String
     Description: SSM Parameter for the Load Balancer Security Group ID
-    Default: /shared-infra/alb-sg-id
+
+  LoadBalancerScheme:
+    Type: String
+    AllowedValues:
+      - internal
+      - internet-facing
+    Default: internal
+    Description: Scheme for the Load Balancer
 
 Resources:
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "${NamePrefix}"
+      Name: !Sub "${ResourcePrefix}"
       Subnets:
         - !Ref LoadBalancerSubnet1
         - !Ref LoadBalancerSubnet2
       SecurityGroups:
         - !Ref LoadBalancerSecurityGroup
-      Scheme: private
+      Scheme: !Ref LoadBalancerScheme
+      Type: application
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
           Value: '60'
@@ -57,7 +62,7 @@ Resources:
       Protocol: HTTPS
       Certificates:
         - CertificateArn: !Ref ACMCertificateArn
-      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
 
   HTTPListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -75,7 +80,7 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "${NamePrefix}-ecs-app"
+      Name: !Sub "${ResourcePrefix}-ecs-app"
       Port: 80
       Protocol: HTTP
       VpcId: !Ref VPCId
@@ -84,3 +89,11 @@ Resources:
       HealthCheckProtocol: HTTP
       Matcher:
         HttpCode: '200-399'
+
+Outputs:
+  LoadBalancerName:
+    Value: !GetAtt LoadBalancer.LoadBalancerName
+    Description: Name of the Load Balancer resource
+
+  TargetGroup:
+    Value: !Ref TargetGroup
