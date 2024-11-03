@@ -11,10 +11,18 @@ Parameters:
     Type: AWS::EC2::VPC::Id
     Description: The VPC ID where the resources will be deployed
 
+  CreateMonitoring:
+    Type: String
+    AllowedValues:
+      - true
+      - false
+    Default: false
+    Description: Enables or disables the creation of the monitoring stack
+
   AlarmSNSArn:
-    Type: AWS::SSM::Parameter::Value<String>
+    Type: String
+    Default: None
     Description: SSM parameter for the ARN of the existing SNS topic to receive alarm notifications
-    Default: /shared-infra/alarm-sns-arn
 
   WebSubnet1:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
@@ -45,9 +53,20 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
     Description: The SSM parameter for the second subnet ID for RDS
     Default: /devops/data-subnet-2
+  
+  ACMCertificateArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: The SSM parameter for the ACM Certificate ARN 
+    Default: /devops/certificate
+
+Conditions:
+  CreateMonitoringStack:
+    Fn::Equals:
+      - !Ref CreateMonitoring
+      - 'true'
 
 Resources:
-  SharedInfraStack:
+  sharedinfra:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: shared-infra.yml
@@ -55,7 +74,7 @@ Resources:
         ResourcePrefix: !Ref ResourcePrefix
         VPCId: !Ref VPCId
 
-  DatabaseStack:
+  database:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: database.yml
@@ -64,37 +83,44 @@ Resources:
         VPCId: !Ref VPCId
         RDSSubnet1: !Ref DataSubnet1
         RDSSubnet2: !Ref DataSubnet2
-        SecurityGroupId: !Ref SharedInfraStack.DBSecurityGroup
+        SecurityGroupId: !GetAtt sharedinfra.Outputs.DBSecurityGroup
+        DBSecretArn: !GetAtt sharedinfra.Outputs.DBSecretArn
 
-  FrontendStack:
+  frontend:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: frontend.yml
       Parameters:
+        StackName: !Sub '${ResourcePrefix}-frontend'
         ResourcePrefix: !Ref ResourcePrefix
         VPCId: !Ref VPCId
-        LoadBalancerSecurityGroup: !Ref SharedInfraStack.LoadBalancerSecurityGroup
+        LoadBalancerSecurityGroup: !GetAtt sharedinfra.Outputs.LoadBalancerSecurityGroup
         LoadBalancerSubnet1: !Ref WebSubnet1
         LoadBalancerSubnet2: !Ref WebSubnet2
+        ACMCertificateArn: !Ref ACMCertificateArn
 
-  AppStack:
+  app:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub "https://s3.amazonaws.com/${AWS::AccountId}-cloudformation-templates/app.yml"
       Parameters:
+        StackName: !Sub '${ResourcePrefix}-app'
         ResourcePrefix: !Ref ResourcePrefix
         VPCId: !Ref VPCId
-        AppSecurityGroup: !Ref SharedInfraStack.AppSecurityGroup
+        AppSecurityGroup: !GetAtt sharedinfra.Outputs.AppSecurityGroup
         ECSTaskSubnetIds: !Sub '${AppSubnet1},${AppSubnet2}'
-        ALBTargetGroupArn: !Ref FrontendStack.TargetGroup
+        ALBTargetGroupArn: !GetAtt frontend.Outputs.TargetGroup
 
-  MonitoringStack:
+  monitoring:
     Type: AWS::CloudFormation::Stack
+    Condition: CreateMonitoringStack
     Properties:
+      StackName: !Sub '${ResourcePrefix}-monitoring'
       TemplateURL: monitoring.yml
       Parameters:
         NamePrefix: !Ref ResourcePrefix
         AlarmSNSArn: !Ref AlarmSNSArn
-        LoadBalancerName: !Ref LoadBalancerName
+        LoadBalancerName: !GetAtt frontend.Outputs.LoadBalancerName
+        
 
 
