@@ -34,7 +34,7 @@ Resources:
     Properties:
       MaxCapacity: 4
       MinCapacity: 1
-      ResourceId: !Sub "service/${BookStackCluster}/${BookStackService}"
+      ResourceId: !Sub "service/${ECSCluster}/${Service}"
       RoleARN: !GetAtt TaskExecutionRole.Arn
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
@@ -50,7 +50,7 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
 
-  BookStackCluster:
+  ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub "${ResourcePrefix}"
@@ -77,11 +77,11 @@ Resources:
                   - logs:PutLogEvents
                 Resource: !Sub arn:aws:logs:*:*:log-group:/${ResourcePrefix}:*
 
-  BookStackTaskDefinition:
+  TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${ResourcePrefix}-app"
-      Cpu: 1024
+      Cpu: 512
       Memory: 1024
       NetworkMode: awsvpc
       RequiresCompatibilities:
@@ -99,14 +99,14 @@ Resources:
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: app
 
-  BookStackService:
+  Service:
     Type: AWS::ECS::Service
     Properties:
       ServiceName: !Sub "${ResourcePrefix}-service"
-      Cluster: !Ref BookStackCluster
+      Cluster: !Ref ECSCluster
       DesiredCount: 1
       LaunchType: FARGATE
-      TaskDefinition: !Ref BookStackTaskDefinition
+      TaskDefinition: !Ref TaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
@@ -117,3 +117,8 @@ Resources:
         - ContainerName: bookstack
           ContainerPort: 80
           TargetGroupArn: !Ref ALBTargetGroupArn
+
+Outputs:
+  ECSService:
+    Value: !Ref Service
+    Description: The ECS service for BookStack
