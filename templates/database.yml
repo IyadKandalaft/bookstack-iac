@@ -26,18 +26,24 @@ Parameters:
 
   DBInstanceClass:
     Type: String
-    Default: db.t3.medium
+    Default: db.t4g.medium
     AllowedValues:
+      - db.t4g.medium
+      - db.t4g.large
       - db.t3.medium
+      - db.t3.large
       - db.r5.large
       - db.r5.xlarge
+      - db.r6g.large
+      - db.r6g.xlarge
+      - db.r7g.large
     Description: Aurora MySQL instance class
 
   SecurityGroupId:
     Type: String
     Description: SSM parameter for the security group ID to be used by the RDS instance
 
-  DBSecretArn:
+  DBSecretName:
     Type: String
     Description: The ARN of the secret for the database password
 
@@ -60,10 +66,8 @@ Resources:
       Engine: aurora-mysql
       EngineVersion: '8.0'
       DBClusterParameterGroupName: default.aurora-mysql8.0
-      ManageMasterUserPassword: true
-      MasterUsername: admin
-      MasterUserSecret:
-        SecretArn: !Ref DBSecretArn
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecretName, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecretName, ':SecretString:password}}' ]]
       DatabaseName: !Ref DatabaseName
       VpcSecurityGroupIds:
         - !Ref SecurityGroupId
@@ -96,3 +100,6 @@ Outputs:
   DBPort:
     Description: The port of the RDS database
     Value: !GetAtt DBCluster.Endpoint.Port
+  DBName:
+    Description: The name of the RDS database
+    Value: !Ref DatabaseName
