@@ -32,8 +32,13 @@ Parameters:
     AllowedValues:
       - internal
       - internet-facing
-    Default: internal
+    Default: internet-facing
     Description: Scheme for the Load Balancer
+
+  AppDomain:
+    Type: String
+    Default: bookstack.mydomain.com
+    Description: Domain name for the application
 
 Resources:
   LoadBalancer:
@@ -55,14 +60,30 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: "Forbidden"
+            StatusCode: 403
       LoadBalancerArn: !Ref LoadBalancer
       Port: 443
       Protocol: HTTPS
       Certificates:
         - CertificateArn: !Ref ACMCertificateArn
       SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+  DomainListener:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Ref AppDomain
+      ListenerArn: !Ref HTTPSListener
+      Priority: 1
 
   HTTPListener:
     Type: AWS::ElasticLoadBalancingV2::Listener

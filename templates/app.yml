@@ -15,45 +15,118 @@ Parameters:
     Type: AWS::EC2::SecurityGroup::Id
     Description: The security group to be used for the ECS service
 
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: The security group to be used for the EFS mount targets
+
   ECSTaskSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: List of Subnet IDs for ECS tasks
 
   BookStackImage:
     Type: String
-    Default: solidnerd/bookstack:latest
+    Default: lscr.io/linuxserver/bookstack:latest
     Description: Docker image for BookStack
+
+  BookStackContainerPort:
+    Type: Number
+    Default: 443
+    Description: The port BookStack is listening on within the container
 
   ALBTargetGroupArn:
     Type: String
     Description: ARN of the ALB Target Group
 
-Resources:
-  ScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 4
-      MinCapacity: 1
-      ResourceId: !Sub "service/${ECSCluster}/${Service}"
-      RoleARN: !GetAtt TaskExecutionRole.Arn
-      ScalableDimension: ecs:service:DesiredCount
-      ServiceNamespace: ecs
+  BackupTagKey:
+    Type: String
+    Description: They tag key used to apply a backup policy to the database for AWS Backups
+    Default: backup-plan
 
-  ScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${ResourcePrefix}-scaling"
-      PolicyType: TargetTrackingScaling
-      ScalingTargetId: !Ref ScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        TargetValue: 70.0
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+  BackupTagValue:
+    Type: String
+    Description: The tag value of the backup tag
+    Default: default
+
+  DatabaseHost:
+    Type: String
+    Description: The hostname of the database to connect to
+
+  DatabaseName:
+    Type: String
+    Description: The name of the database to connect to
+    Default: bookstack
+
+  DatabaseCredsSecret:
+    Type: String
+    Description: The ARN of the Secrets Manager secret containing the database credentials
+
+  DatabasePort:
+    Type: Number
+    Description: The port of the database to connect to
+    Default: 3306
+
+  AppURL:
+    Type: String
+    Description: The URL of the application
+  
+  LogGroupName:
+    Type: String
+    Description: The name of the CloudWatch Log Group for the application
+
+  AppKey:
+    Type: String
+    Description: The value of the APP_KEY environment variable
+    NoEcho: true
+
+Resources:
+  # ScalableTarget:
+  #   Type: AWS::ApplicationAutoScaling::ScalableTarget
+  #   Properties:
+  #     MaxCapacity: 4
+  #     MinCapacity: 1
+  #     ResourceId: !Sub "service/${ECSCluster}/${Service}"
+  #     RoleARN: !GetAtt TaskExecutionRole.Arn
+  #     ScalableDimension: ecs:service:DesiredCount
+  #     ServiceNamespace: ecs
+
+  # ScalingPolicy:
+  #   Type: AWS::ApplicationAutoScaling::ScalingPolicy
+  #   Properties:
+  #     PolicyName: !Sub "${ResourcePrefix}-scaling"
+  #     PolicyType: TargetTrackingScaling
+  #     ScalingTargetId: !Ref ScalableTarget
+  #     TargetTrackingScalingPolicyConfiguration:
+  #       TargetValue: 70.0
+  #       PredefinedMetricSpecification:
+  #         PredefinedMetricType: ECSServiceAverageCPUUtilization
 
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub "${ResourcePrefix}"
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "ecs-exec"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: "*"
 
   TaskExecutionRole:
     Type: AWS::IAM::Role
@@ -75,7 +148,11 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub arn:aws:logs:*:*:log-group:/${ResourcePrefix}:*
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${LogGroupName}:log-stream:app/*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DatabaseCredsSecret
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -87,17 +164,65 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      Volumes:
+        - Name: config
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref DataVolume
+            TransitEncryption: ENABLED
+      
       ContainerDefinitions:
         - Name: bookstack
           Image: !Ref BookStackImage
           PortMappings:
-            - ContainerPort: 80
+            - ContainerPort: !Ref BookStackContainerPort
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref ResourcePrefix
+              awslogs-group: !Ref LogGroupName
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: app
+          Environment:
+            - Name: DB_HOST
+              Value: !Ref DatabaseHost
+            - Name: DB_DATABASE
+              Value: !Ref DatabaseName
+            - Name: APP_URL
+              Value: !Ref AppURL
+            - Name: APP_KEY
+              Value: !Ref AppKey
+          Secrets:
+            - Name: DB_USERNAME
+              ValueFrom: !Sub "${DatabaseCredsSecret}:username::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DatabaseCredsSecret}:password::"
+
+  DataVolume:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-data"
+        - Key: !Ref BackupTagKey
+          Value: !Ref BackupTagValue
+      PerformanceMode: generalPurpose
+
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref DataVolume
+      SubnetId: !Select [0, !Ref ECSTaskSubnetIds]
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref DataVolume
+      SubnetId: !Select [1, !Ref ECSTaskSubnetIds]
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
 
   Service:
     Type: AWS::ECS::Service
@@ -105,8 +230,15 @@ Resources:
       ServiceName: !Sub "${ResourcePrefix}-service"
       Cluster: !Ref ECSCluster
       DesiredCount: 1
+      EnableExecuteCommand: true
       LaunchType: FARGATE
       TaskDefinition: !Ref TaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
@@ -115,10 +247,11 @@ Resources:
           Subnets: !Ref ECSTaskSubnetIds
       LoadBalancers:
         - ContainerName: bookstack
-          ContainerPort: 80
+          ContainerPort: !Ref BookStackContainerPort
           TargetGroupArn: !Ref ALBTargetGroupArn
+      PropagateTags: SERVICE
 
 Outputs:
   ECSService:
-    Value: !Ref Service
+    Value: "" # !Ref Service
     Description: The ECS service for BookStack
