@@ -1,0 +1,14 @@
+# General
+.env
+.log
+
+# Python
+.pyc
+__pycache__/
+.swp
+.swo
+
+
+# Cloudformation packaged templates
+*.packaged
+*params.json
