@@ -10,8 +10,35 @@ Parameters:
   VPCId:
     Type: AWS::EC2::VPC::Id
     Description: VPC ID
+  
+  LogsRetention:
+    Type: Number
+    Default: 60
+    Description: Number of days to keep application logs
+  
+  AppContainerPort:
+    Type: Number
+    Default: 443
+    Description: Traffic port number that is open on the application container
 
 Resources:
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "${ResourcePrefix}"
+      RetentionInDays: !Ref LogsRetention
+
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ResourcePrefix}-database-credentials'
+      Description: Secret to store the database credentials for BookStack
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\\+$;'
+
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -48,10 +75,41 @@ Resources:
       VpcId: !Ref VPCId
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
+          FromPort: !Ref AppContainerPort
+          ToPort: !Ref AppContainerPort
           SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+  
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ResourcePrefix}-efs'
+      GroupDescription: Security group for EFS
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+
+Outputs:
+  LogGroupName:
+    Value: !Ref Logs
+    Description: Reference to the Log Group for the application
+  DBSecretArn:
+    Value: !Ref DBSecret
+    Description: Reference to the Secret used to store the database credentials
+  DBSecretName:
+    Value: !Sub '${ResourcePrefix}-database-credentials'
+    Description: Name of the Secret used to store the database credentials
+  DBSecurityGroup:
+    Value: !Ref DBSecurityGroup
+    Description: Reference to the Security Group used for the database
+  AppSecurityGroup:
+    Value: !Ref AppSecurityGroup
+    Description: Reference to the Security Group used for the application
+  LoadBalancerSecurityGroup:
+    Value: !Ref LoadBalancerSecurityGroup
+    Description: Reference to the Security Group used for the load balancer
+  EFSSecurityGroup:
+    Value: !Ref EFSSecurityGroup
+    Description: Reference to the Security Group used for EFS

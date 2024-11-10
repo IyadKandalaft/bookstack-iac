@@ -40,6 +40,19 @@ Parameters:
     Default: bookstack.mydomain.com
     Description: Domain name for the application
 
+  AppProtocol:
+    Type: String
+    Default: HTTPS
+    AllowedValues:
+      - HTTP
+      - HTTPS
+    Description: Protocol used by the application
+  
+  AppPort:
+    Type: Number
+    Default: 443
+    Description: Port used by the application
+
 Resources:
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -71,17 +84,21 @@ Resources:
       Certificates:
         - CertificateArn: !Ref ACMCertificateArn
       SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-https-listener"
 
-  DomainListener:
+  DomainRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref TargetGroup2
       Conditions:
         - Field: host-header
           Values:
             - !Ref AppDomain
+      
       ListenerArn: !Ref HTTPSListener
       Priority: 1
 
@@ -97,19 +114,27 @@ Resources:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 80
       Protocol: HTTP
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-http-listener"
 
-  TargetGroup:
+  TargetGroup2:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "${ResourcePrefix}-ecs-app"
-      Port: 80
-      Protocol: HTTP
+      Name: !Sub "${ResourcePrefix}-ecs-app2"
+      Port: !Ref AppPort
+      Protocol: !Ref AppProtocol
       VpcId: !Ref VPCId
       TargetType: ip
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
+      HealthCheckPath: /status
+      HealthCheckProtocol: !Ref AppProtocol
+      HealthCheckIntervalSeconds: 15
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 4
       Matcher:
         HttpCode: '200-399'
+
 
 Outputs:
   LoadBalancerName:
@@ -117,4 +142,4 @@ Outputs:
     Description: Name of the Load Balancer resource
 
   TargetGroup:
-    Value: !Ref TargetGroup
+    Value: !Ref TargetGroup2
