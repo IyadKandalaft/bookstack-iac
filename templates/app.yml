@@ -62,12 +62,15 @@ Parameters:
 
   DatabasePort:
     Type: Number
+    MinValue: 1
+    MaxValue: 65535
     Description: The port of the database to connect to
     Default: 3306
 
   AppURL:
     Type: String
-    Description: The URL of the application
+    AllowedPattern: ^https?://.*$
+    Description: The URL of the application (e.g. https://bookstack.example.co)
   
   LogGroupName:
     Type: String
@@ -75,7 +78,9 @@ Parameters:
 
   AppKey:
     Type: String
-    Description: The value of the APP_KEY environment variable
+    Description: The value of the APP_KEY environment variable (Must be 32 alphanumeric characters)
+    MinLength: 32
+    MaxLength: 32
     NoEcho: true
 
 Resources:

@@ -4,7 +4,7 @@ Description: CloudFormation Template to deploy an Application Load Balancer with
 Parameters:
   ResourcePrefix:
     Type: String
-    Default: cbdg-cd
+    Default: BookStack
     Description: Prefix for naming resources
 
   VPCId:
@@ -24,7 +24,7 @@ Parameters:
     Description: ARN of the ACM Certificate for the Load Balancer
 
   LoadBalancerSecurityGroup:
-    Type: String
+    Type: AWS::EC2::SecurityGroup::Id
     Description: SSM Parameter for the Load Balancer Security Group ID
 
   LoadBalancerScheme:
@@ -37,6 +37,7 @@ Parameters:
 
   AppDomain:
     Type: String
+    AllowedPattern: ^[a-zA-Z0-9.-]*$
     Default: bookstack.mydomain.com
     Description: Domain name for the application
 
@@ -50,6 +51,8 @@ Parameters:
   
   AppPort:
     Type: Number
+    MinValue: 1
+    MaxValue: 65535
     Default: 443
     Description: Port used by the application
 

@@ -4,7 +4,7 @@ Description: CloudFormation Template to deploy an Aurora MySQL instance for Book
 Parameters:
   ResourcePrefix:
     Type: String
-    Default: cbpg-bookstack
+    Default: BookStack
     Description: Prefix to use for all resource names
 
   VPCId:
@@ -22,7 +22,8 @@ Parameters:
   DatabaseName:
     Type: String
     Default: bookstack
-    Description: Name of the RDS database
+    AllowedPattern: ^[a-zA-Z0-9_]+$
+    Description: Name of the database schema
 
   DBInstanceClass:
     Type: String

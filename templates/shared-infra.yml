@@ -4,7 +4,7 @@ Description: Shared Infrastructure Template to create security groups for RDS an
 Parameters:
   ResourcePrefix:
     Type: String
-    Default: cbpg-bookstack
+    Default: BookStack
     Description: Prefix to use for all resource names
 
   VPCId:
@@ -14,11 +14,15 @@ Parameters:
   LogsRetention:
     Type: Number
     Default: 60
+    MinValue: 1
+    MaxValue: 2555
     Description: Number of days to keep application logs
   
   AppContainerPort:
     Type: Number
     Default: 443
+    MinValue: 1
+    MaxValue: 65535
     Description: Traffic port number that is open on the application container
 
 Resources:

@@ -18,16 +18,18 @@ Parameters:
       - true
       - false
     Default: false
-    Description: Enables or disables the creation of the monitoring stack
+    Description: Enables or disables the creation of the monitoring dashboard and alarms 
 
   AppDomain:
     Type: String
     Default: bookstack.iyadk.com
-    Description: Application domain name used for ALB
+    Description: Application domain name that will be used to access the application
 
   AppKey:
     Type: String
-    Description: Application data encryption key used for data exports and migrations
+    MinLength: 32
+    MaxLength: 32
+    Description: BookStack encryption key used for data exports and migrations (must be 32 alphanumeric characters long)
     NoEcho: true
      
   AlarmSNSArn:
@@ -37,7 +39,7 @@ Parameters:
 
   WebSubnet1:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Subnet::Id>
-    Description: The SSM parameter for the load balancer subnet ID 
+    Description: The SSM parameter for the load balancer subnet ID
     Default: /devops/web-subnet-1
 
   WebSubnet2:
@@ -69,6 +71,31 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<String>
     Description: The SSM parameter for the ACM Certificate ARN 
     Default: /devops/certificate
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Infrastructure Network Configuration
+        Parameters:
+          - VPCId
+          - WebSubnet1
+          - WebSubnet2
+          - AppSubnet1
+          - AppSubnet2
+          - DataSubnet1
+          - DataSubnet2
+      - Label:
+          default: Application Configuration
+        Parameters:
+          - AppDomain
+          - AppKey
+          - ACMCertificateArn
+      - Label:
+          default: Monitoring Configuration
+        Parameters:
+          - CreateMonitoring
+          - AlarmSNSArn
 
 Conditions:
   CreateMonitoringStack:
