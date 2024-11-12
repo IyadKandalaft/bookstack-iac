@@ -8,8 +8,9 @@ Parameters:
     Description: Prefix to use for all resources
 
   VPCId:
-    Type: AWS::EC2::VPC::Id
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::VPC::Id>
     Description: The VPC ID where the resources will be deployed
+    Default: /devops/vpc-id
 
   CreateMonitoring:
     Type: String
@@ -19,9 +20,19 @@ Parameters:
     Default: false
     Description: Enables or disables the creation of the monitoring stack
 
+  AppDomain:
+    Type: String
+    Default: bookstack.iyadk.com
+    Description: Application domain name used for ALB
+
+  AppKey:
+    Type: String
+    Description: Application data encryption key used for data exports and migrations
+    NoEcho: true
+     
   AlarmSNSArn:
     Type: String
-    Default: None
+    Default: ""
     Description: SSM parameter for the ARN of the existing SNS topic to receive alarm notifications
 
   WebSubnet1:
@@ -84,43 +95,49 @@ Resources:
         RDSSubnet1: !Ref DataSubnet1
         RDSSubnet2: !Ref DataSubnet2
         SecurityGroupId: !GetAtt sharedinfra.Outputs.DBSecurityGroup
-        DBSecretArn: !GetAtt sharedinfra.Outputs.DBSecretArn
+        DBSecretName: !GetAtt sharedinfra.Outputs.DBSecretName
 
   frontend:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: frontend.yml
       Parameters:
-        StackName: !Sub '${ResourcePrefix}-frontend'
         ResourcePrefix: !Ref ResourcePrefix
         VPCId: !Ref VPCId
         LoadBalancerSecurityGroup: !GetAtt sharedinfra.Outputs.LoadBalancerSecurityGroup
         LoadBalancerSubnet1: !Ref WebSubnet1
         LoadBalancerSubnet2: !Ref WebSubnet2
         ACMCertificateArn: !Ref ACMCertificateArn
+        AppDomain: !Ref AppDomain
 
   app:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub "https://s3.amazonaws.com/${AWS::AccountId}-cloudformation-templates/app.yml"
+      TemplateURL: app.yml
       Parameters:
-        StackName: !Sub '${ResourcePrefix}-app'
         ResourcePrefix: !Ref ResourcePrefix
         VPCId: !Ref VPCId
         AppSecurityGroup: !GetAtt sharedinfra.Outputs.AppSecurityGroup
+        EFSSecurityGroup: !GetAtt sharedinfra.Outputs.EFSSecurityGroup
         ECSTaskSubnetIds: !Sub '${AppSubnet1},${AppSubnet2}'
-        ALBTargetGroupArn: !GetAtt frontend.Outputs.TargetGroup
+        ALBTargetGroupArn: !GetAtt frontend.Outputs.TargetGroupArn
+        DatabaseHost: !GetAtt database.Outputs.DBEndpoint
+        DatabasePort: !GetAtt database.Outputs.DBPort
+        DatabaseName: !GetAtt database.Outputs.DBName
+        DatabaseCredsSecret: !GetAtt sharedinfra.Outputs.DBSecretArn
+        AppURL: !Sub "https://${AppDomain}"
+        AppKey: !Ref AppKey
+        LogGroupName: !GetAtt sharedinfra.Outputs.LogGroupName        
 
   monitoring:
     Type: AWS::CloudFormation::Stack
     Condition: CreateMonitoringStack
     Properties:
-      StackName: !Sub '${ResourcePrefix}-monitoring'
       TemplateURL: monitoring.yml
       Parameters:
         NamePrefix: !Ref ResourcePrefix
         AlarmSNSArn: !Ref AlarmSNSArn
-        LoadBalancerName: !GetAtt frontend.Outputs.LoadBalancerName
+        LoadBalancerArn: !GetAtt frontend.Outputs.LoadBalancerArn
+        TargetGroupArn: !GetAtt frontend.Outputs.TargetGroupArn
+
         
-
-
