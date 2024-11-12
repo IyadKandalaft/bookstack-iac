@@ -103,3 +103,6 @@ Outputs:
   DBName:
     Description: The name of the RDS database
     Value: !Ref DatabaseName
+  DBClusterName:
+    Description: The ID of the RDS database cluster
+    Value: !Ref DBCluster

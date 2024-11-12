@@ -93,7 +93,7 @@ Resources:
     Properties:
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup2
+          TargetGroupArn: !Ref TargetGroup
       Conditions:
         - Field: host-header
           Values:

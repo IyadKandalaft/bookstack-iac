@@ -139,5 +139,9 @@ Resources:
         AlarmSNSArn: !Ref AlarmSNSArn
         LoadBalancerArn: !GetAtt frontend.Outputs.LoadBalancerArn
         TargetGroupArn: !GetAtt frontend.Outputs.TargetGroupArn
+        DBClusterName: !GetAtt database.Outputs.DBClusterName
+        ECSServiceName: !GetAtt app.Outputs.ECSService
+        ECSClusterName: !GetAtt app.Outputs.ECSCluster
+        EFSFileSystemId: !GetAtt app.Outputs.EFSId
 
         

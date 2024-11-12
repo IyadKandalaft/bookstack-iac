@@ -253,5 +253,11 @@ Resources:
 
 Outputs:
   ECSService:
-    Value: "" # !Ref Service
+    Value: !GetAtt Service.Name
     Description: The ECS service for BookStack
+  ECSCluster:
+    Value: !Ref ECSCluster
+    Description: The ECS cluster for BookStack
+  EFSId:
+    Value: !Ref DataVolume
+    Description: The EFS ID for BookStack

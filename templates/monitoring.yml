@@ -10,141 +10,309 @@ Parameters:
   AlarmSNSArn:
     Type: String
     Description: ARN of the existing SNS topic to receive alarm notifications
+    Default: ""
 
-  LoadBalancerName:
-    Type: AWS::SSM::Parameter::Value<String>
-    Description: The SSM parameter for the ALB name
+  LoadBalancerArn:
+    Type: String
+    Description: The ALB Arn that serves traffic
+  
+  TargetGroupArn:
+    Type: String
+    Description: The ALB Target Group Arn that serves traffic
+  
+  ECSClusterName:
+    Type: String
+    Description: The ECS Cluster Name that hosts the task
+
+  ECSServiceName:
+    Type: String
+    Description: The ECS Service Name that hosts the task
+  
+  EFSFileSystemId:
+    Type: String
+    Description: The EFS Filesystem Id that hosts the volume
+
+  DBClusterName:
+    Type: String
+    Description: The RDS Aurora Cluster Name that hosts the database
+
+Conditions:
+  HasAlarmSNSArn: !Not [!Equals [!Ref AlarmSNSArn, ""]]
 
 Resources:
   HTTPCheckAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${NamePrefix}-HTTP-Check-Alarm"
-      AlarmDescription: "Alarm if the application is not available (HTTP 5xx errors)"
+      AlarmName: !Sub "${NamePrefix}-app-errors"
+      AlarmDescription: "Alarm if the application is generating a lot of errors (HTTP 5xx)"
       Namespace: AWS/ApplicationELB
       MetricName: HTTPCode_Target_5XX_Count
       Dimensions:
         - Name: LoadBalancer
-          Value: !Sub "app/${LoadBalancerName}"
+          Value: !Select [1, !Split ["loadbalancer/", !Ref LoadBalancerArn]]
+        - Name: TargetGroup
+          Value: !Select [5, !Split [":", !Ref TargetGroupArn]]
       Statistic: Sum
       Period: 60
-      EvaluationPeriods: 2
-      Threshold: 1
+      EvaluationPeriods: 3
+      Threshold: 3
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
+      ActionsEnabled: !If
+        - HasAlarmSNSArn
+        - true
+        - false
+      AlarmActions:
+        - !If
+          - HasAlarmSNSArn
+          - !Ref AlarmSNSArn
+          - !Ref AWS::NoValue
 
   TargetResponseTimeAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${NamePrefix}-Response-Time-Alarm"
-      AlarmDescription: "Alarm if the target response time exceeds 2 seconds"
+      AlarmName: !Sub "${NamePrefix}-response-time"
+      AlarmDescription: "Alarm if the target response time is high"
       Namespace: AWS/ApplicationELB
       MetricName: TargetResponseTime
       Dimensions:
         - Name: LoadBalancer
-          Value: !Sub "app/${NamePrefix}-alb/${LoadBalancerDNSName}"
+          Value: !Select [1, !Split ["loadbalancer/", !Ref LoadBalancerArn]]
+        - Name: TargetGroup
+          Value: !Select [5, !Split [":", !Ref TargetGroupArn]]
       Statistic: Average
       Period: 60
-      EvaluationPeriods: 2
-      Threshold: 2
+      EvaluationPeriods: 3
+      Threshold: 5
       ComparisonOperator: GreaterThanThreshold
-      AlarmActions:
-        - !Ref AlarmSNSArn
       TreatMissingData: notBreaching
+      ActionsEnabled: !If
+        - HasAlarmSNSArn
+        - true
+        - false
+      AlarmActions:
+        - !If
+          - HasAlarmSNSArn
+          - !Ref AlarmSNSArn
+          - !Ref AWS::NoValue
 
   CloudWatchDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
-      DashboardName: !Sub "${NamePrefix}-Dashboard"
-      DashboardBody:
-        Fn::Sub:
-          - |
-            {
-              "widgets": [
-                  "type": "metric",
-                  "x": 0,
-                  "y": 0,
-                  "width": 12,
-                  "height": 6,
-                  "properties": {
-                    "view": "timeSeries",
-                    "stacked": false,
-                    "metrics": [
-                      [ "AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${LoadBalancerName}", { "stat": "Sum"} ],
-                      [ "AWS/ApplicationELB", "HTTPCode_Target_2XX_Count", "LoadBalancer", "${LoadBalancerName}", { "stat": "Sum"} ],
-                      [ "AWS/ApplicationELB", "HTTPCode_Target_4XX_Count", "LoadBalancer", "${LoadBalancerName}", { "stat": "Sum"} ],
-                      [ "AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", "${LoadBalancerName}", { "stat": "Sum"} ]
-                    ],
-                    "region": "${AWS::Region}",
-                    "title": "ALB Request and Response Codes"
-                  }
+      DashboardName: !Sub "${NamePrefix}"
+      DashboardBody: !Sub 
+        - |-
+          {
+            "start": "-P3D",
+            "widgets": [
+              {
+                "type": "metric",
+                "width": 12,
+                "height": 8,
+                "properties": {
+                  "title": "Client Requests and Responses",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/ApplicationELB", "RequestCount", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}", { "label": "Requests",  "stat": "Sum", "yAxis": "left"} ],
+                    [ "AWS/ApplicationELB", "HTTPCode_Target_2XX_Count", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}", { "label": "HTTP 2xx",  "stat": "Sum", "yAxis": "left" } ],
+                    [ "AWS/ApplicationELB", "HTTPCode_Target_4XX_Count", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}", { "label": "HTTP 4xx",  "stat": "Sum", "yAxis": "right" } ],
+                    [ "AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}", { "label": "HTTP 5xx",  "stat": "Sum", "yAxis": "right" } ]
+                  ],
+                  "region": "${AWS::Region}"
                 },
-                {
-                  "type": "metric",
-                  "x": 0,
-                  "y": 6,
-                  "width": 6,
-                  "height": 6,
-                  "properties": {
-                    "view": "timeSeries",
-                    "stacked": false,
-                    "metrics": [
-                      [ "AWS/ECS", "RunningTasksCount", "ClusterName", "${NamePrefix}-Cluster", { "stat": "Average"} ],
-                      [ "AWS/ECS", "PendingTasksCount", "ClusterName", "${NamePrefix}-Cluster", { "stat": "Average"} ]
-                    ],
-                    "region": "${AWS::Region}",
-                    "title": "ECS Running & Pending Tasks"
-                  }
-                },
-                {
-                  "type": "metric",
-                  "x": 6,
-                  "y": 6,
-                  "width": 6,
-                  "height": 6,
-                  "properties": {
-                    "view": "timeSeries",
-                    "stacked": false,
-                    "metrics": [
-                      [ "AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "${LoadBalancerName}", { "stat": "Average"} ]
-                    ],
-                    "region": "${AWS::Region}",
-                    "title": "ALB Target Response Time"
+                "yAxis": {
+                  "left": {
+                    "label": "Count",
+                    "min": 0
                   },
-                {
-                  "type": "metric",
-                  "x": 0,
-                  "y": 12,
-                  "width": 6,
-                  "height": 6,
-                  "properties": {
-                    "view": "timeSeries",
-                    "stacked": false,
-                    "metrics": [
-                      [ "AWS/ECS", "CPUUtilization", "ClusterName", "${NamePrefix}-Cluster", { "stat": "Average"} ],
-                      [ ".", "ServiceName", "${NamePrefix}-service" ]
-                    ],
-                    "region": "${AWS::Region}",
-                    "title": "ECS CPU Utilization"
-                  }
-                },
-                {
-                  "type": "metric",
-                  "x": 6,
-                  "y": 12,
-                  "width": 6,
-                  "height": 6,
-                  "properties": {
-                    "view": "timeSeries",
-                    "stacked": false,
-                    "metrics": [
-                      [ "AWS/ECS", "MemoryUtilization", "ClusterName", "${NamePrefix}-Cluster", { "stat": "Average"} ],
-                      [ ".", "ServiceName", "${NamePrefix}-service" ]
-                    ],
-                    "region": "${AWS::Region}",
-                    "title": "ECS Memory Utilization"
+                  "right": {
+                    "label": "Errors",
+                    "min": 0
                   }
                 }
-              ]
-            }
-          - {}
+              },
+              {
+                "type": "metric",
+                "width": 12,
+                "height": 8,
+                "properties": {
+                  "title": "Application Response Time",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/ApplicationELB", "TargetResponseTime", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}"]
+                  ],
+                  "region": "${AWS::Region}"
+                }
+              },
+              {
+                "type": "metric",
+                "width": 12,
+                "height": 8,
+                "properties": {
+                  "title": "ECS Task Health",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/ApplicationELB", "HealthyHostCount", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}" ],
+                    [ "AWS/ApplicationELB", "UnHealthyHostCount", "TargetGroup", "${TargetGroupDimension}", "LoadBalancer", "${ALBDimension}" ]
+                  ],
+                  "region": "${AWS::Region}"
+                },
+                "yAxis": {
+                  "left": {
+                    "label": "Count",
+                    "min": 0
+                  }
+                }
+              },{
+                "type": "metric",
+                "width": 12,
+                "height": 8,
+                "properties": {
+                  "title": "ECS Service Metrics",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/ECS", "CPUUtilization", "ServiceName", "${ECSServiceDim}", "ClusterName", "${ECSClusterDim}", { "label": "CPU" } ],
+                    [ "AWS/ECS", "MemoryUtilization", "ServiceName", "${ECSServiceDim}", "ClusterName", "${ECSClusterDim}", { "label": "Memory" } ]
+                  ],
+                  "region": "${AWS::Region}"
+                },
+                "yAxis": {
+                  "left": {
+                    "label": "Percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                }
+              },
+              {
+                "type": "metric",
+                "width": 8,
+                "height": 6,
+                "properties": {
+                  "title": "Database Performance Overview",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/RDS", "CPUUtilization", "DBClusterIdentifier", "${DBClusterDim}", { "stat": "Average", "yAxis": "right" } ],
+                    [ "AWS/RDS", "FreeableMemory", "DBClusterIdentifier", "${DBClusterDim}", { "stat": "Average", "yAxis": "left" } ],
+                    [ "AWS/RDS", "FreeLocalStorage", "DBClusterIdentifier", "${DBClusterDim}", { "stat": "Average", "yAxis": "left"  } ]
+                  ],
+                  "region": "${AWS::Region}"
+                },
+                "yAxis": {
+                  "left": {
+                    "label": "Bytes",
+                    "min": 0
+                  },
+                  "right": {
+                    "label": "Percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                }
+              },
+              {
+                "type": "metric",
+                "width": 8,
+                "height": 6,
+                "properties": {
+                  "title": "Database Connection Metrics",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/RDS", "DatabaseConnections", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Active", "stat": "Average" } ],
+                    [ "AWS/RDS", "ConectionsAttempted", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Attempted", "stat": "Sum", "yAxis": "left" } ],
+                    [ "AWS/RDS", "AbortedClients", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Aborted", "stat": "Sum", "yAxis": "left" } ],
+                    [ "AWS/RDS", "Queries", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Queries", "stat": "Average", "yAxis": "right" } ]
+                  ],
+                  "region": "${AWS::Region}"
+                },
+                "yAxis": {
+                  "left": {
+                    "label": "Connections",
+                    "min": 0
+                  },
+                  "right": {
+                    "label": "Count",
+                    "min": 0
+                  }
+                }
+              },
+              {
+                "type": "metric",
+
+                "width": 8,
+                "height": 6,
+                "properties": {
+                  "title": "Database Disk Performance",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "metrics": [
+                    [ "AWS/RDS", "ReadLatency", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Read", "stat": "Average" } ],
+                    [ "AWS/RDS", "WriteLatency", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Write", "stat": "Average" } ],
+                    [ "AWS/RDS", "DiskQueueDepth", "DBClusterIdentifier", "${DBClusterDim}", { "label": "Queue Depth", "stat": "Average", "yAxis": "right" } ]
+                  ],
+                  "region": "${AWS::Region}"
+                },
+                "yAxis": {
+                  "left": {
+                    "label": "Latency (s)",
+                    "min": 0
+                  },
+                  "right": {
+                    "label": "Count",
+                    "min": 0
+                  }
+                }
+              },
+              {
+                "type": "metric",
+                "width": 12,
+                "height": 8,
+                "properties": {
+                  "title": "EFS IO",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/EFS", "TotalIOBytes", "FileSystemId", "${EFSIdDim}", { "label": "Total", "stat": "Sum" } ]
+                  ],
+                  "yAxis": {
+                    "left": {
+                      "min": 0,
+                      "label": "Bytes"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "metric",
+                "width": 12,
+                "height": 8,
+                "properties": {
+                  "title": "EFS Storage Size",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "metrics": [
+                    [ "AWS/EFS", "StorageBytes", "StorageClass", "Total", "FileSystemId", "${EFSIdDim}", { "label": "Consumed Space", "stat": "Sum" } ]
+                  ],
+                  "yAxis": {
+                    "left": {
+                      "min": 0
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        - ALBDimension: !Select [1, !Split ["loadbalancer/", !Ref LoadBalancerArn]]
+          TargetGroupDimension: !Select [5, !Split [":", !Ref TargetGroupArn]]
+          EFSIdDim: !Ref EFSFileSystemId
+          DBClusterDim: !Ref DBClusterName
+          ECSServiceDim: !Ref ECSServiceName
+          ECSClusterDim: !Ref ECSClusterName
