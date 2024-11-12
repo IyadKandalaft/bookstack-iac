@@ -118,10 +118,10 @@ Resources:
         - Key: Name
           Value: !Sub "${ResourcePrefix}-http-listener"
 
-  TargetGroup2:
+  TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "${ResourcePrefix}-ecs-app2"
+      Name: !Sub "${ResourcePrefix}-ecs-app"
       Port: !Ref AppPort
       Protocol: !Ref AppProtocol
       VpcId: !Ref VPCId
@@ -141,5 +141,10 @@ Outputs:
     Value: !GetAtt LoadBalancer.LoadBalancerName
     Description: Name of the Load Balancer resource
 
-  TargetGroup:
-    Value: !Ref TargetGroup2
+  LoadBalancerArn:
+    Value: !Ref LoadBalancer
+    Description: ARN of the Load Balancer resource
+  
+  TargetGroupArn:
+    Value: !GetAtt TargetGroup.TargetGroupArn
+    Description: ARN of the Target Group resource
