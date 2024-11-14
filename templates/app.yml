@@ -84,26 +84,28 @@ Parameters:
     NoEcho: true
 
 Resources:
-  # ScalableTarget:
-  #   Type: AWS::ApplicationAutoScaling::ScalableTarget
-  #   Properties:
-  #     MaxCapacity: 4
-  #     MinCapacity: 1
-  #     ResourceId: !Sub "service/${ECSCluster}/${Service}"
-  #     RoleARN: !GetAtt TaskExecutionRole.Arn
-  #     ScalableDimension: ecs:service:DesiredCount
-  #     ServiceNamespace: ecs
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 4
+      MinCapacity: 1
+      ResourceId: !Sub "service/${ECSCluster}/${Service.Name}"
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
 
-  # ScalingPolicy:
-  #   Type: AWS::ApplicationAutoScaling::ScalingPolicy
-  #   Properties:
-  #     PolicyName: !Sub "${ResourcePrefix}-scaling"
-  #     PolicyType: TargetTrackingScaling
-  #     ScalingTargetId: !Ref ScalableTarget
-  #     TargetTrackingScalingPolicyConfiguration:
-  #       TargetValue: 70.0
-  #       PredefinedMetricSpecification:
-  #         PredefinedMetricType: ECSServiceAverageCPUUtilization
+  ScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${ResourcePrefix}-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        ScaleInCooldown: 180
+        ScaleOutCooldown: 30
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
 
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -163,8 +165,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${ResourcePrefix}-app"
-      Cpu: 512
-      Memory: 1024
+      Cpu: 1024
+      Memory: 2048
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
