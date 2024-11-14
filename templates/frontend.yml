@@ -131,10 +131,10 @@ Resources:
       TargetType: ip
       HealthCheckPath: /status
       HealthCheckProtocol: !Ref AppProtocol
-      HealthCheckIntervalSeconds: 15
-      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 20
+      HealthCheckTimeoutSeconds: 10
       HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 4
+      UnhealthyThresholdCount: 5
       Matcher:
         HttpCode: '200-399'
 
